@@ -1,0 +1,66 @@
+<?php
+
+use Drupal\taxonomy\Entity\Vocabulary;
+use Drupal\field\Entity\FieldStorageConfig;
+use Drupal\field\Entity\FieldConfig;
+
+/**
+ * Implements hook_install().
+ */
+function group_countries_install() {
+  // Créer le vocabulaire si pas encore existant.
+  if (!Vocabulary::load('continent_countries')) {
+    Vocabulary::create([
+      'vid' => 'continent_countries',
+      'name' => 'Countries',
+    ])->save();
+  }
+
+  // Ajouter le champ "field_iso2".
+  if (!FieldStorageConfig::loadByName('taxonomy_term', 'field_iso2')) {
+    FieldStorageConfig::create([
+      'field_name' => 'field_iso2',
+      'entity_type' => 'taxonomy_term',
+      'type' => 'string',
+      'cardinality' => 1,
+      'settings' => [
+        'max_length' => 2,
+      ],
+    ])->save();
+  }
+
+  // Attacher le champ au vocabulaire "continent_countries".
+  if (!FieldConfig::loadByName('taxonomy_term', 'continent_countries', 'field_iso2')) {
+    FieldConfig::create([
+      'field_name' => 'field_iso2',
+      'entity_type' => 'taxonomy_term',
+      'bundle' => 'continent_countries',
+      'label' => 'ISO 2 Code',
+    ])->save();
+  }
+}
+
+/**
+ * Post-update hook pour importer automatiquement les pays et continents.
+ */
+function group_countries_update_9007() {
+  $data = _group_countries_fetch_from_api();
+  if (!empty($data)) {
+    foreach ($data as $continent_name => $countries) {
+      $continent_term = _group_countries_get_or_create_term('continent_countries', ['name' => $continent_name]);
+      foreach ($countries as $index => $dataCountires) {
+        _group_countries_get_or_create_term('continent_countries', $dataCountires, $continent_term->id());
+      }
+    }
+  }
+}
+
+/**
+ * Implements hook_uninstall().
+ */
+function group_countries_uninstall() {
+  // Supprimer le vocabulaire s’il existe.
+  if ($vocab = Vocabulary::load('continent_countries')) {
+    $vocab->delete();
+  }
+}

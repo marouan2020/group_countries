@@ -1,0 +1,82 @@
+<?php
+
+use Drupal\taxonomy\Entity\Term;
+
+/**
+ * Appelle l’API FIRST.org et renvoie un tableau structuré :
+ * [
+ *   'Europe' => ['France', 'Germany', ...],
+ *   'Asia' => ['China', 'Japan', ...],
+ *   ...
+ * ]
+ */
+function _group_countries_fetch_from_api() {
+  $regions = [
+    'Africa',
+    'Europe',
+    'Asia',
+    'Central America',
+    'Oceania',
+    'Antarctic',
+  ];
+  $results = [];
+  try {
+    $client = \Drupal::httpClient();
+    foreach ($regions as $region) {
+      $url = 'https://api.first.org/data/v1/countries?region=' . urlencode($region);
+      $response = $client->get($url, ['timeout' => 10]);
+      if ($response->getStatusCode() === 200) {
+        $json = json_decode($response->getBody()->getContents(), TRUE);
+        if (!empty($json['data'])) {
+          foreach ($json['data'] as $code => $info) {
+            $results[$region][] = ['code' => $code, 'name' => $info['country'] ?? $code];
+          }
+          sleep(2);
+        }
+      }
+    }
+  }
+  catch (\Exception $e) {
+    \Drupal::logger('group_countries')->error('Erreur lors de l’import des pays : @msg', ['@msg' => $e->getMessage()]);
+  }
+
+  return $results;
+}
+
+/**
+ * Crée ou récupère un terme de taxonomie.
+ *
+ * @param string $vocabulary
+ *   Le vocabulaire.
+ * @param array $dataCountires
+ *   Nom du terme.
+ * @param int|null $parent_tid
+ *   TID du parent (optionnel).
+ *
+ * @return \Drupal\taxonomy\Entity\Term
+ */
+function _group_countries_get_or_create_term(string $vocabulary, array $dataCountires, ?int $parent_tid = NULL): Term {
+  $terms = \Drupal::entityTypeManager()
+    ->getStorage('taxonomy_term')
+    ->loadByProperties([
+      'vid' => $vocabulary,
+      'name' => $dataCountires['name'],
+    ]);
+  if ($terms) {
+    return reset($terms);
+  }
+  $fields = [
+    'vid' => $vocabulary,
+    'name' =>  $dataCountires['name'],
+  ];
+  if (!empty( $dataCountires['code'])) {
+    $fields['field_iso2'] = $dataCountires['code'];
+  }
+  if (!is_null($parent_tid)) {
+    $fields['parent'] = [$parent_tid];
+  }
+  $term = Term::create($fields);
+  $term->save();
+
+  return $term;
+}
